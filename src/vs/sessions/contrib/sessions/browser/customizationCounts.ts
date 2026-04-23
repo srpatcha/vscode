@@ -5,6 +5,7 @@
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { isEqualOrParent } from '../../../../base/common/resources.js';
+import { ResourceSet } from '../../../../base/common/map.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -63,10 +64,22 @@ export async function getSourceCounts(
 			items.push({ storage: a.source.storage, uri: a.uri });
 		}
 	} else if (promptType === PromptsType.skill) {
-		// Must match loadItems: uses findAgentSkills()
+		// Must match loadItems: uses findAgentSkills() for enabled + disabled from listPromptFiles()
 		const skills = await promptsService.findAgentSkills(CancellationToken.None);
+		const seenUris = new ResourceSet();
 		for (const s of skills ?? []) {
+			seenUris.add(s.uri);
 			items.push({ storage: s.storage, uri: s.uri });
+		}
+		// Include disabled skills so the count matches what the list widget shows
+		const disabledUris = promptsService.getDisabledPromptFiles(PromptsType.skill);
+		if (disabledUris.size > 0) {
+			const allSkillFiles = await promptsService.listPromptFiles(PromptsType.skill, CancellationToken.None);
+			for (const f of allSkillFiles) {
+				if (!seenUris.has(f.uri) && disabledUris.has(f.uri)) {
+					items.push({ storage: f.storage, uri: f.uri });
+				}
+			}
 		}
 	} else if (promptType === PromptsType.prompt) {
 		// Must match loadItems: uses getPromptSlashCommands() filtering out skills

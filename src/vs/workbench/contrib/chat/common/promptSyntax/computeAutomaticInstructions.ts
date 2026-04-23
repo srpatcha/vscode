@@ -5,33 +5,33 @@
 
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { match, splitGlobAware } from '../../../../../base/common/glob.js';
+import { hash } from '../../../../../base/common/hash.js';
 import { ResourceMap, ResourceSet } from '../../../../../base/common/map.js';
 import { Schemas } from '../../../../../base/common/network.js';
 import { OperatingSystem } from '../../../../../base/common/platform.js';
 import { basename, dirname } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { OffsetRange } from '../../../../../editor/common/core/ranges/offsetRange.js';
 import { localize } from '../../../../../nls.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { ILabelService } from '../../../../../platform/label/common/label.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
-import { IRemoteAgentService } from '../../../../services/remote/common/remoteAgentService.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
-import { ChatRequestVariableSet, IChatRequestVariableEntry, isPromptFileVariableEntry, toPromptFileVariableEntry, toPromptTextVariableEntry, PromptFileVariableKind, IPromptTextVariableEntry, ChatRequestToolReferenceEntry, toToolVariableEntry } from '../attachments/chatVariableEntries.js';
+import { IRemoteAgentService } from '../../../../services/remote/common/remoteAgentService.js';
+import { ChatRequestToolReferenceEntry, ChatRequestVariableSet, IChatRequestVariableEntry, IPromptTextVariableEntry, isPromptFileVariableEntry, PromptFileVariableKind, toPromptFileVariableEntry, toPromptTextVariableEntry, toToolVariableEntry } from '../attachments/chatVariableEntries.js';
+import { ChatConfiguration, ChatModeKind, GeneralPurposeAgentName } from '../constants.js';
+import { UserSelectedTools } from '../participants/chatAgents.js';
+import { IAgentPlugin, IAgentPluginService } from '../plugins/agentPluginService.js';
 import { ILanguageModelToolsService, IToolData, VSCodeToolReference } from '../tools/languageModelToolsService.js';
 import { PromptsConfig } from './config/config.js';
 import { isInClaudeAgentsFolder, isInClaudeRulesFolder, isPromptOrInstructionsFile } from './config/promptFileLocations.js';
 import { ParsedPromptFile } from './promptFileParser.js';
-import { AgentInstructionFileType, IAgentSkill, ICustomAgent, IInstructionFile, IPromptsService, matchesSessionType, newInstructionsCollectionEvent, newInstructionsCollectionDebugInfo, type InstructionsCollectionEvent, type InstructionsCollectionDebugInfo } from './service/promptsService.js';
-export type { InstructionsCollectionEvent, InstructionsCollectionDebugInfo } from './service/promptsService.js';
-export { newInstructionsCollectionEvent, newInstructionsCollectionDebugInfo } from './service/promptsService.js';
-import { AGENT_DEBUG_LOG_FILE_LOGGING_ENABLED_SETTING, TROUBLESHOOT_SKILL_PATH } from './promptTypes.js';
-import { OffsetRange } from '../../../../../editor/common/core/ranges/offsetRange.js';
-import { ChatConfiguration, ChatModeKind, GeneralPurposeAgentName } from '../constants.js';
-import { UserSelectedTools } from '../participants/chatAgents.js';
-import { hash } from '../../../../../base/common/hash.js';
-import { IAgentPlugin, IAgentPluginService } from '../plugins/agentPluginService.js';
+import { AGENT_DEBUG_LOG_FILE_LOGGING_ENABLED_SETTING, PromptsType, TROUBLESHOOT_SKILL_PATH } from './promptTypes.js';
+import { AgentInstructionFileType, IAgentSkill, ICustomAgent, IInstructionFile, IPromptsService, matchesSessionType, newInstructionsCollectionDebugInfo, newInstructionsCollectionEvent, type InstructionsCollectionDebugInfo, type InstructionsCollectionEvent } from './service/promptsService.js';
+export { newInstructionsCollectionDebugInfo, newInstructionsCollectionEvent } from './service/promptsService.js';
+export type { InstructionsCollectionDebugInfo, InstructionsCollectionEvent } from './service/promptsService.js';
 
 export interface InstructionsCollectionResult {
 	readonly telemetryEvent: InstructionsCollectionEvent;
@@ -397,6 +397,19 @@ export class ComputeAutomaticInstructions {
 			}
 
 			const agentSkills = await this._promptsService.findAgentSkills(token);
+
+			// Log debug details for user-disabled skills (excluded by findAgentSkills())
+			const disabledSkillUris = this._promptsService.getDisabledPromptFiles(PromptsType.skill);
+			if (disabledSkillUris.size > 0) {
+				const allSkillFiles = await this._promptsService.listPromptFiles(PromptsType.skill, token);
+				for (const file of allSkillFiles) {
+					if (disabledSkillUris.has(file.uri)) {
+						const name = file.name || basename(dirname(file.uri)) || basename(file.uri);
+						debugInfo.debugDetails.push({ category: 'skipped', name, uri: file.uri, reason: localize('debugDetail.skillDisabled', 'disabled in Customizations') });
+					}
+				}
+			}
+
 			// Filter out skills with disableModelInvocation=true (they can only be triggered manually via /name)
 			// Also filter by session type in consumers outside the prompts service
 			// Also filter out the troubleshoot skill when  agent debug log file logging setting is disabled

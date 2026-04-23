@@ -167,8 +167,17 @@ export class AICustomizationOverviewView extends ViewPane {
 			let count = 0;
 			if (type === PromptsType.skill) {
 				const skills = await this.promptsService.findAgentSkills(CancellationToken.None);
-				if (skills) {
-					count = skills.length;
+				count = skills?.length ?? 0;
+				// Include disabled skills so the count matches the list
+				const disabledUris = this.promptsService.getDisabledPromptFiles(PromptsType.skill);
+				if (disabledUris.size > 0) {
+					const seenUris = new ResourceSet((skills ?? []).map(s => s.uri));
+					const allSkillFiles = await this.promptsService.listPromptFiles(PromptsType.skill, CancellationToken.None);
+					for (const f of allSkillFiles) {
+						if (!seenUris.has(f.uri) && disabledUris.has(f.uri)) {
+							count++;
+						}
+					}
 				}
 			} else {
 				const allItems = await this.promptsService.listPromptFiles(type, CancellationToken.None);

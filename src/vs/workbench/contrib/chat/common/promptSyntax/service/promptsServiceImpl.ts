@@ -1195,7 +1195,11 @@ export class PromptsService extends Disposable implements IPromptsService {
 
 		const discoveryInfo = await this.cachedSkills.get(token);
 		const result = this.skillsFromDiscoveryInfo(discoveryInfo);
-		return result;
+		const disabled = this.getDisabledPromptFiles(PromptsType.skill);
+		if (disabled.size === 0) {
+			return result;
+		}
+		return result.filter(skill => !disabled.has(skill.uri));
 	}
 
 	/**

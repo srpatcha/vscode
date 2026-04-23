@@ -413,26 +413,50 @@ class UnifiedAICustomizationDataSource implements IAsyncDataSource<RootElement, 
 			if (!cached.skills) {
 				const skills = await this.promptsService.findAgentSkills(CancellationToken.None);
 				cached.skills = skills || [];
-				this.totalItemCount += cached.skills.length;
+
+				// Count disabled skills so totalItemCount includes them.
+				// This ensures isEmptyContextKey reflects all skills (enabled + disabled).
+				const disabledUris = this.promptsService.getDisabledPromptFiles(PromptsType.skill);
+				let disabledSkillCount = 0;
+				if (disabledUris.size > 0) {
+					const seen = new ResourceSet(cached.skills.map(s => s.uri));
+					const allSkillFiles = await this.promptsService.listPromptFiles(PromptsType.skill, CancellationToken.None);
+					for (const file of allSkillFiles) {
+						if (!seen.has(file.uri) && disabledUris.has(file.uri)) {
+							disabledSkillCount++;
+						}
+					}
+				}
+				this.totalItemCount += cached.skills.length + disabledSkillCount;
 				this.onItemCountChanged(this.totalItemCount);
 			}
 
-			const workspaceSkills = cached.skills.filter(s => s.storage === PromptsStorage.local);
-			const userSkills = cached.skills.filter(s => s.storage === PromptsStorage.user);
-			const extensionSkills = cached.skills.filter(s => s.storage === PromptsStorage.extension);
-			const builtinSkills = cached.skills.filter(s => s.storage === BUILTIN_STORAGE);
+			// Collect disabled skills per storage so groups containing only
+			// disabled skills still appear in the tree (the user needs to be able to re-enable them).
+			const disabledUris = this.promptsService.getDisabledPromptFiles(PromptsType.skill);
+			const disabledSkillsByStorage = new Map<AICustomizationPromptsStorage, number>();
+			if (disabledUris.size > 0) {
+				const seen = new ResourceSet(cached.skills.map(s => s.uri));
+				const allSkillFiles = await this.promptsService.listPromptFiles(PromptsType.skill, CancellationToken.None);
+				for (const file of allSkillFiles) {
+					if (!seen.has(file.uri) && disabledUris.has(file.uri)) {
+						const storage = file.storage as AICustomizationPromptsStorage;
+						disabledSkillsByStorage.set(storage, (disabledSkillsByStorage.get(storage) ?? 0) + 1);
+					}
+				}
+			}
 
-			if (workspaceSkills.length > 0) {
-				groups.push(this.createGroupItem(promptType, PromptsStorage.local, workspaceSkills.length));
-			}
-			if (userSkills.length > 0) {
-				groups.push(this.createGroupItem(promptType, PromptsStorage.user, userSkills.length));
-			}
-			if (extensionSkills.length > 0) {
-				groups.push(this.createGroupItem(promptType, PromptsStorage.extension, extensionSkills.length));
-			}
-			if (builtinSkills.length > 0) {
-				groups.push(this.createGroupItem(promptType, BUILTIN_STORAGE, builtinSkills.length));
+			const storageBuckets: { storage: AICustomizationPromptsStorage; count: number }[] = [
+				{ storage: PromptsStorage.local, count: cached.skills.filter(s => s.storage === PromptsStorage.local).length + (disabledSkillsByStorage.get(PromptsStorage.local) ?? 0) },
+				{ storage: PromptsStorage.user, count: cached.skills.filter(s => s.storage === PromptsStorage.user).length + (disabledSkillsByStorage.get(PromptsStorage.user) ?? 0) },
+				{ storage: PromptsStorage.extension, count: cached.skills.filter(s => s.storage === PromptsStorage.extension).length + (disabledSkillsByStorage.get(PromptsStorage.extension) ?? 0) },
+				{ storage: BUILTIN_STORAGE, count: cached.skills.filter(s => s.storage === BUILTIN_STORAGE).length + (disabledSkillsByStorage.get(BUILTIN_STORAGE) ?? 0) },
+			];
+
+			for (const bucket of storageBuckets) {
+				if (bucket.count > 0) {
+					groups.push(this.createGroupItem(promptType, bucket.storage, bucket.count));
+				}
 			}
 
 			return groups;

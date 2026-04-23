@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
+import { ResourceSet } from '../../../../../base/common/map.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { PromptsType } from '../../../../../workbench/contrib/chat/common/promptSyntax/promptTypes.js';
 import { IPromptsService, PromptsStorage, IPromptPath, ILocalPromptPath, IUserPromptPath, IExtensionPromptPath, IAgentInstructionFile, AgentInstructionFileType } from '../../../../../workbench/contrib/chat/common/promptSyntax/service/promptsService.js';
@@ -87,6 +88,7 @@ function createMockPromptsService(opts: {
 		})),
 		getSourceFolders: async () => [],
 		getResolvedSourceFolders: async () => [],
+		getDisabledPromptFiles: () => new ResourceSet(),
 		onDidChangeCustomAgents: Event.None,
 		onDidChangeSlashCommands: Event.None,
 	} as unknown as IPromptsService;

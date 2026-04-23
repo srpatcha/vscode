@@ -12,13 +12,13 @@ import { localize } from '../../../../../nls.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../../../platform/product/common/productService.js';
 import { IAICustomizationWorkspaceService, applyStorageSourceFilter } from '../../common/aiCustomizationWorkspaceService.js';
-import { HookType, HOOK_METADATA } from '../../common/promptSyntax/hookTypes.js';
+import { ICustomizationItem, ICustomizationItemProvider, IHarnessDescriptor, matchesInstructionFileFilter, matchesWorkspaceSubpath } from '../../common/customizationHarnessService.js';
 import { formatHookCommandLabel } from '../../common/promptSyntax/hookSchema.js';
+import { HOOK_METADATA, HookType } from '../../common/promptSyntax/hookTypes.js';
 import { PromptsType } from '../../common/promptSyntax/promptTypes.js';
 import { IPromptsService, PromptsStorage } from '../../common/promptSyntax/service/promptsService.js';
-import { ICustomizationItem, ICustomizationItemProvider, IHarnessDescriptor, matchesInstructionFileFilter, matchesWorkspaceSubpath } from '../../common/customizationHarnessService.js';
-import { BUILTIN_STORAGE } from './aiCustomizationManagement.js';
 import { getFriendlyName, isChatExtensionItem } from './aiCustomizationItemSource.js';
+import { BUILTIN_STORAGE } from './aiCustomizationManagement.js';
 
 /**
  * Adapts the rich promptsService model to the same provider-shaped items
@@ -81,7 +81,6 @@ export class PromptsServiceCustomizationItemProvider implements ICustomizationIt
 				}
 			}
 		} else if (promptType === PromptsType.skill) {
-			const skills = await this.promptsService.findAgentSkills(token);
 			const allSkillFiles = await this.promptsService.listPromptFiles(PromptsType.skill, token);
 			for (const file of allSkillFiles) {
 				if (file.extension) {
@@ -89,10 +88,13 @@ export class PromptsServiceCustomizationItemProvider implements ICustomizationIt
 				}
 			}
 			const uiIntegrations = this.workspaceService.getSkillUIIntegrations();
+
+			// Phase 1: enabled skills — findAgentSkills() already excludes disabled ones.
+			const skills = await this.promptsService.findAgentSkills(token);
 			const seenUris = new ResourceSet();
 			for (const skill of skills || []) {
-				const skillName = skill.name || basename(dirname(skill.uri)) || basename(skill.uri);
 				seenUris.add(skill.uri);
+				const skillName = skill.name || basename(dirname(skill.uri)) || basename(skill.uri);
 				const skillFolderName = basename(dirname(skill.uri));
 				const uiTooltip = uiIntegrations.get(skillFolderName);
 				items.push({
@@ -106,23 +108,23 @@ export class PromptsServiceCustomizationItemProvider implements ICustomizationIt
 					badgeTooltip: uiTooltip,
 				});
 			}
-			if (disabledUris.size > 0) {
-				for (const file of allSkillFiles) {
-					if (!seenUris.has(file.uri) && disabledUris.has(file.uri)) {
-						const disabledName = file.name || basename(dirname(file.uri)) || basename(file.uri);
-						const disabledFolderName = basename(dirname(file.uri));
-						const uiTooltip = uiIntegrations.get(disabledFolderName);
-						items.push({
-							uri: file.uri,
-							type: promptType,
-							name: disabledName,
-							description: file.description,
-							storage: file.storage,
-							enabled: false,
-							badge: uiTooltip ? localize('uiIntegrationBadge', "UI Integration") : undefined,
-							badgeTooltip: uiTooltip,
-						});
-					}
+
+			// Phase 2: disabled skills — surface them so the user can re-enable them.
+			for (const file of allSkillFiles) {
+				if (!seenUris.has(file.uri) && disabledUris.has(file.uri)) {
+					const disabledName = file.name || basename(dirname(file.uri)) || basename(file.uri);
+					const disabledFolderName = basename(dirname(file.uri));
+					const uiTooltip = uiIntegrations.get(disabledFolderName);
+					items.push({
+						uri: file.uri,
+						type: promptType,
+						name: disabledName,
+						description: file.description,
+						storage: file.storage,
+						enabled: false,
+						badge: uiTooltip ? localize('uiIntegrationBadge', "UI Integration") : undefined,
+						badgeTooltip: uiTooltip,
+					});
 				}
 			}
 		} else if (promptType === PromptsType.prompt) {
