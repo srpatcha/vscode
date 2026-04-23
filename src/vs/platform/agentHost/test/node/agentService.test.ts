@@ -4,11 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { DisposableStore, IReference, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { hasKey } from '../../../../base/common/types.js';
@@ -19,7 +21,7 @@ import { AgentSession } from '../../common/agentService.js';
 import { ISessionDatabase, ISessionDataService } from '../../common/sessionDataService.js';
 import { SessionDatabase } from '../../node/sessionDatabase.js';
 import { ActionType, ActionEnvelope } from '../../common/state/sessionActions.js';
-import { SessionActiveClient, ResponsePartKind, SessionLifecycle, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, TurnState, buildSubagentSessionUri, type MarkdownResponsePart, type ToolCallCompletedState, type ToolCallResponsePart } from '../../common/state/sessionState.js';
+import { SessionActiveClient, ResponsePartKind, SessionLifecycle, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, TurnState, buildSubagentSessionUri, type CustomizationRef, type MarkdownResponsePart, type ToolCallCompletedState, type ToolCallResponsePart } from '../../common/state/sessionState.js';
 import { IProductService } from '../../../product/common/productService.js';
 import { AgentService } from '../../node/agentService.js';
 import { MockAgent } from './mockAgent.js';
@@ -56,8 +58,8 @@ suite('AgentService (node dispatcher)', () => {
 	let copilotAgent: MockAgent;
 	let fileService: FileService;
 
-	setup(async () => {
-		const nullSessionDataService: ISessionDataService = {
+	function createNullSessionDataService(): ISessionDataService {
+		return {
 			_serviceBrand: undefined,
 			getSessionDataDir: () => URI.parse('inmemory:/session-data'),
 			getSessionDataDirById: () => URI.parse('inmemory:/session-data'),
@@ -67,6 +69,9 @@ suite('AgentService (node dispatcher)', () => {
 			cleanupOrphanedData: async () => { },
 			whenIdle: async () => { },
 		};
+	}
+
+	setup(async () => {
 		fileService = disposables.add(new FileService(new NullLogService()));
 		disposables.add(fileService.registerProvider(Schemas.inMemory, disposables.add(new InMemoryFileSystemProvider())));
 
@@ -74,7 +79,7 @@ suite('AgentService (node dispatcher)', () => {
 		await fileService.createFolder(URI.from({ scheme: Schemas.inMemory, path: '/testDir' }));
 		await fileService.writeFile(URI.from({ scheme: Schemas.inMemory, path: '/testDir/file.txt' }), VSBuffer.fromString('hello'));
 
-		service = disposables.add(new AgentService(new NullLogService(), fileService, nullSessionDataService, { _serviceBrand: undefined } as IProductService));
+		service = disposables.add(new AgentService(new NullLogService(), fileService, createNullSessionDataService(), { _serviceBrand: undefined } as IProductService));
 		copilotAgent = new MockAgent('copilot');
 		disposables.add(toDisposable(() => copilotAgent.dispose()));
 	});
@@ -117,6 +122,56 @@ suite('AgentService (node dispatcher)', () => {
 	});
 
 	// ---- createSession --------------------------------------------------
+
+	suite('dispatchAction', () => {
+
+		test('applies and persists root config changes from clients', async () => {
+			const tempDir = URI.file(mkdtempSync(`${tmpdir()}/agent-host-config-`));
+			try {
+				const rootConfigResource = joinPath(tempDir, 'agent-host-config.json');
+				const svc = disposables.add(new AgentService(new NullLogService(), fileService, createNullSessionDataService(), { _serviceBrand: undefined } as IProductService, rootConfigResource));
+				const agent = new MockAgent('copilot');
+				const hostCustomizationCalls: CustomizationRef[][] = [];
+				agent.setHostCustomizations = customizations => {
+					hostCustomizationCalls.push([...customizations]);
+					agent.customizations = [...customizations];
+				};
+				disposables.add(toDisposable(() => agent.dispose()));
+				svc.registerProvider(agent);
+
+				const customization = { uri: 'file:///plugin-a', displayName: 'Plugin A' };
+				svc.dispatchAction({
+					type: ActionType.RootConfigChanged,
+					config: { customizations: [customization] },
+				}, 'test-client', 1);
+
+				let persisted = false;
+				for (let attempt = 0; attempt < 20; attempt++) {
+					if (hostCustomizationCalls.length > 1) {
+						try {
+							assert.deepStrictEqual(
+								JSON.parse(readFileSync(rootConfigResource.fsPath, 'utf8')),
+								{ customizations: [customization] },
+							);
+							persisted = true;
+							break;
+						} catch {
+							// Wait for the serialized root-config write to complete.
+						}
+					}
+					if (attempt === 19) {
+						break;
+					}
+					await new Promise(resolve => setTimeout(resolve, 5));
+				}
+
+				assert.deepStrictEqual(hostCustomizationCalls.at(-1), [customization]);
+				assert.ok(persisted, 'should persist the root config change');
+			} finally {
+				rmSync(tempDir.fsPath, { recursive: true, force: true });
+			}
+		});
+	});
 
 	suite('createSession', () => {
 

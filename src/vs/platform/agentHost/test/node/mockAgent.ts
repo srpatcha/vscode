@@ -12,7 +12,7 @@ import { type ISyncedCustomization } from '../../common/agentPluginManager.js';
 import { AgentSession, type AgentProvider, type IAgent, type IAgentAttachment, type IAgentCreateSessionConfig, type IAgentCreateSessionResult, type IAgentDescriptor, type IAgentMessageEvent, type IAgentModelInfo, type IAgentProgressEvent, type IAgentResolveSessionConfigParams, type IAgentSessionConfigCompletionsParams, type IAgentSessionMetadata, type IAgentSubagentStartedEvent, type IAgentToolCompleteEvent, type IAgentToolStartEvent } from '../../common/agentService.js';
 import { ProtectedResourceMetadata, type ModelSelection } from '../../common/state/protocol/state.js';
 import type { ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../../common/state/protocol/commands.js';
-import { CustomizationStatus, ToolResultContentType, type CustomizationRef, type PendingMessage, type ToolCallResult } from '../../common/state/sessionState.js';
+import { CustomizationStatus, ToolResultContentType, type CustomizationRef, type PendingMessage, type SessionCustomization, type ToolCallResult } from '../../common/state/sessionState.js';
 
 /** Well-known auto-generated title used by the 'with-title' prompt. */
 export const MOCK_AUTO_TITLE = 'Automatically generated title';
@@ -46,6 +46,8 @@ export class MockAgent implements IAgent {
 	readonly setCustomizationEnabledCalls: { uri: string; enabled: boolean }[] = [];
 	/** Configurable return value for getCustomizations. */
 	customizations: CustomizationRef[] = [];
+	setHostCustomizations?: (customizations: CustomizationRef[], progress?: () => void) => void;
+	getSessionCustomizations?: (session: URI) => Promise<readonly SessionCustomization[]>;
 
 	/** Configurable return value for getSessionMessages. */
 	sessionMessages: (IAgentMessageEvent | IAgentToolStartEvent | IAgentToolCompleteEvent | IAgentSubagentStartedEvent)[] = [];

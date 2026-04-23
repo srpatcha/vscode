@@ -19,6 +19,8 @@ import { ServiceCollection } from '../../../instantiation/common/serviceCollecti
 import { ILogService, NullLogService } from '../../../log/common/log.js';
 import { AgentSession, IAgent } from '../../common/agentService.js';
 import { ISessionDataService } from '../../common/sessionDataService.js';
+import type { RootConfigChangedAction } from '../../common/state/protocol/actions.js';
+import { CustomizationStatus, SessionCustomizationSource } from '../../common/state/protocol/state.js';
 import { ActionType, ActionEnvelope, SessionAction } from '../../common/state/sessionActions.js';
 import { buildSubagentSessionUri, PendingMessageKind, ResponsePartKind, SessionStatus, ToolCallStatus, ToolResultContentType } from '../../common/state/sessionState.js';
 import { IProductService } from '../../../product/common/productService.js';
@@ -638,6 +640,18 @@ suite('AgentSideEffects', () => {
 
 		test('calls setClientCustomizations and dispatches customizationsChanged', async () => {
 			setupSession();
+			agent.getSessionCustomizations = async () => [
+				{
+					customization: { uri: 'file:///plugin-a', displayName: 'Plugin A' },
+					enabled: true,
+					status: CustomizationStatus.Loaded,
+				},
+				{
+					customization: { uri: 'file:///plugin-b', displayName: 'Plugin B' },
+					enabled: true,
+					status: CustomizationStatus.Loaded,
+				},
+			];
 
 			const envelopes: ActionEnvelope[] = [];
 			disposables.add(stateManager.onDidEmitEnvelope(e => envelopes.push(e)));
@@ -672,7 +686,7 @@ suite('AgentSideEffects', () => {
 			assert.ok(customizationActions.length >= 1, 'should dispatch at least one customizationsChanged');
 		});
 
-		test('skips when activeClient has no customizations', () => {
+		test('clears client customizations when activeClient has no customizations', () => {
 			setupSession();
 
 			const envelopes: ActionEnvelope[] = [];
@@ -688,13 +702,16 @@ suite('AgentSideEffects', () => {
 			};
 			sideEffects.handleAction(action);
 
-			assert.strictEqual(agent.setClientCustomizationsCalls.length, 0);
+			assert.deepStrictEqual(agent.setClientCustomizationsCalls, [{
+				clientId: 'test-client',
+				customizations: [],
+			}]);
 			const customizationActions = envelopes
 				.filter(e => e.action.type === ActionType.SessionCustomizationsChanged);
 			assert.strictEqual(customizationActions.length, 0);
 		});
 
-		test('skips when activeClient is null', () => {
+		test('clears client customizations when activeClient is null', () => {
 			setupSession();
 
 			const action: SessionAction = {
@@ -704,7 +721,54 @@ suite('AgentSideEffects', () => {
 			};
 			sideEffects.handleAction(action);
 
-			assert.strictEqual(agent.setClientCustomizationsCalls.length, 0);
+			assert.deepStrictEqual(agent.setClientCustomizationsCalls, [{
+				clientId: '',
+				customizations: [],
+			}]);
+		});
+	});
+
+	// ---- handleAction: root/configChanged --------------------------------
+
+	suite('handleAction - root/configChanged', () => {
+
+		test('republishes agent and session customizations for existing sessions', async () => {
+			setupSession('file:///workspace');
+			const customization = { uri: 'file:///plugin-a', displayName: 'Plugin A' };
+			agent.setHostCustomizations = customizations => {
+				agent.customizations = [...customizations];
+			};
+			agent.getSessionCustomizations = async () => [{
+				customization,
+				source: SessionCustomizationSource.Host,
+				enabled: true,
+				status: CustomizationStatus.Loaded,
+			}];
+
+			const envelopes: ActionEnvelope[] = [];
+			disposables.add(stateManager.onDidEmitEnvelope(e => envelopes.push(e)));
+
+			const action: RootConfigChangedAction = {
+				type: ActionType.RootConfigChanged,
+				config: { customizations: [customization] },
+			};
+
+			stateManager.dispatchServerAction(action);
+			sideEffects.handleAction(action);
+			await new Promise(resolve => setTimeout(resolve, 10));
+
+			const agentInfoAction = envelopes.filter(e => e.action.type === ActionType.RootAgentsChanged).at(-1);
+			assert.ok(agentInfoAction && hasKey(agentInfoAction.action, { agents: true }));
+			assert.deepStrictEqual(agentInfoAction.action.agents[0]?.customizations, [customization]);
+
+			const sessionCustomizationAction = envelopes.filter(e => e.action.type === ActionType.SessionCustomizationsChanged).at(-1);
+			assert.ok(sessionCustomizationAction && hasKey(sessionCustomizationAction.action, { customizations: true }));
+			assert.deepStrictEqual(sessionCustomizationAction.action.customizations, [{
+				customization,
+				source: SessionCustomizationSource.Host,
+				enabled: true,
+				status: CustomizationStatus.Loaded,
+			}]);
 		});
 	});
 
