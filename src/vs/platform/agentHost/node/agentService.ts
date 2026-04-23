@@ -14,9 +14,10 @@ import { FileSystemProviderErrorCode, IFileService, toFileSystemProviderErrorCod
 import { InstantiationService } from '../../instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../instantiation/common/serviceCollection.js';
 import { ILogService } from '../../log/common/log.js';
+import { AgentHostConfigKey, agentHostCustomizationConfigSchema } from '../common/agentHostCustomizationConfig.js';
 import { AgentProvider, AgentSession, IAgent, IAgentCreateSessionConfig, IAgentMessageEvent, IAgentResolveSessionConfigParams, IAgentService, IAgentSessionConfigCompletionsParams, IAgentSessionMetadata, IAgentSubagentStartedEvent, IAgentToolCompleteEvent, IAgentToolStartEvent, AuthenticateParams, AuthenticateResult } from '../common/agentService.js';
 import { ISessionDataService } from '../common/sessionDataService.js';
-import { ActionType, ActionEnvelope, INotification, SessionAction, TerminalAction, isSessionAction } from '../common/state/sessionActions.js';
+import { ActionType, ActionEnvelope, INotification, StateAction, isRootAction } from '../common/state/sessionActions.js';
 import type { CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from '../common/state/protocol/commands.js';
 import { AhpErrorCodes, AHP_SESSION_NOT_FOUND, ContentEncoding, JSON_RPC_INTERNAL_ERROR, ProtocolError, type DirectoryEntry, type ResourceCopyParams, type ResourceCopyResult, type ResourceDeleteParams, type ResourceDeleteResult, type ResourceListResult, type ResourceMoveParams, type ResourceMoveResult, type ResourceReadResult, type ResourceWriteParams, type ResourceWriteResult, type IStateSnapshot } from '../common/state/sessionProtocol.js';
 import { ResponsePartKind, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, TurnState, buildSubagentSessionUri, parseSubagentSessionUri, type ResponsePart, type SessionConfigState, type ISessionFileDiff, type SessionSummary, type ToolCallCompletedState, type ToolResultSubagentContent, type Turn } from '../common/state/sessionState.js';
@@ -79,6 +80,7 @@ export class AgentService extends Disposable implements IAgentService {
 	private readonly _sideEffects: AgentSideEffects;
 	/** Manages PTY-backed terminals for the agent host protocol. */
 	private readonly _terminalManager: AgentHostTerminalManager;
+	private readonly _configurationService: IAgentConfigurationService;
 
 	/** Exposes the terminal manager for use by agent providers. */
 	get terminalManager(): IAgentHostTerminalManager { return this._terminalManager; }
@@ -88,6 +90,7 @@ export class AgentService extends Disposable implements IAgentService {
 		private readonly _fileService: IFileService,
 		private readonly _sessionDataService: ISessionDataService,
 		private readonly _productService: IProductService,
+		private readonly _rootConfigResource?: URI,
 	) {
 		super();
 		this._logService.info('AgentService initialized');
@@ -98,7 +101,8 @@ export class AgentService extends Disposable implements IAgentService {
 		// Build a local instantiation scope so downstream components can
 		// consume {@link IAgentConfigurationService} (and later {@link ILogService})
 		// via DI rather than being plumbed plain-class references.
-		const configurationService: IAgentConfigurationService = this._register(new AgentConfigurationService(this._stateManager, this._logService));
+		const configurationService: IAgentConfigurationService = this._register(new AgentConfigurationService(this._stateManager, this._logService, this._rootConfigResource));
+		this._configurationService = configurationService;
 		const services = new ServiceCollection(
 			[ILogService, this._logService],
 			[IAgentConfigurationService, configurationService],
@@ -124,6 +128,8 @@ export class AgentService extends Disposable implements IAgentService {
 		}
 		this._logService.info(`Registering agent provider: ${provider.id}`);
 		this._providers.set(provider.id, provider);
+		const hostCustomizations = this._configurationService.getRootValue(agentHostCustomizationConfigSchema, AgentHostConfigKey.Customizations) ?? [];
+		provider.setHostCustomizations?.([...hostCustomizations]);
 		this._providerSubscriptions.add(this._sideEffects.registerProgressListener(provider));
 		if (!this._defaultProvider) {
 			this._defaultProvider = provider.id;
@@ -415,17 +421,15 @@ export class AgentService extends Disposable implements IAgentService {
 		// in Phase 4 (multi-client). For now this is a no-op.
 	}
 
-	dispatchAction(action: SessionAction | TerminalAction, clientId: string, clientSeq: number): void {
+	dispatchAction(action: StateAction, clientId: string, clientSeq: number): void {
 		this._logService.trace(`[AgentService] dispatchAction: type=${action.type}, clientId=${clientId}, clientSeq=${clientSeq}`, action);
 
 		const origin = { clientId, clientSeq };
-
-		if (isSessionAction(action)) {
-			this._stateManager.dispatchClientAction(action, origin);
-			this._sideEffects.handleAction(action);
-		} else {
-			this._stateManager.dispatchClientAction(action, origin);
+		this._stateManager.dispatchClientAction(action, origin);
+		if (isRootAction(action) && action.type === ActionType.RootConfigChanged) {
+			this._configurationService.persistRootConfig();
 		}
+		this._sideEffects.handleAction(action);
 	}
 
 	async resourceList(uri: URI): Promise<ResourceListResult> {

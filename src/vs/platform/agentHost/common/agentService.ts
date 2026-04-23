@@ -13,9 +13,9 @@ import type { ISyncedCustomization } from './agentPluginManager.js';
 import type { IAgentSubscription } from './state/agentSubscription.js';
 import type { CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from './state/protocol/commands.js';
 import { ProtectedResourceMetadata, type ConfigSchema, type FileEdit, type ModelSelection, type SessionActiveClient, type ToolDefinition } from './state/protocol/state.js';
-import type { ActionEnvelope, INotification, SessionAction, TerminalAction } from './state/sessionActions.js';
+import type { ActionEnvelope, INotification, StateAction } from './state/sessionActions.js';
 import type { ResourceCopyParams, ResourceCopyResult, ResourceDeleteParams, ResourceDeleteResult, ResourceListResult, ResourceMoveParams, ResourceMoveResult, ResourceReadResult, ResourceWriteParams, ResourceWriteResult, IStateSnapshot } from './state/sessionProtocol.js';
-import { AttachmentType, ComponentToState, SessionInputResponseKind, SessionStatus, StateComponents, type CustomizationRef, type PendingMessage, type RootState, type SessionInputAnswer, type SessionInputRequest, type ToolCallResult, type ToolResultContent, type PolicyState, type StringOrMarkdown } from './state/sessionState.js';
+import { AttachmentType, ComponentToState, SessionInputResponseKind, SessionStatus, StateComponents, type CustomizationRef, type PendingMessage, type RootState, type SessionCustomization, type SessionInputAnswer, type SessionInputRequest, type ToolCallResult, type ToolResultContent, type PolicyState, type StringOrMarkdown } from './state/sessionState.js';
 
 // IPC contract between the renderer and the agent host utility process.
 // Defines all serializable event types, the IAgent provider interface,
@@ -68,6 +68,7 @@ export interface IAgentSessionMetadata {
 	readonly status?: SessionStatus;
 	readonly model?: ModelSelection;
 	readonly workingDirectory?: URI;
+	readonly customizationDirectory?: URI;
 	readonly isRead?: boolean;
 	readonly isArchived?: boolean;
 	readonly diffs?: readonly FileEdit[];
@@ -466,6 +467,31 @@ export interface IAgent {
 	getProtectedResources(): ProtectedResourceMetadata[];
 
 	/**
+	 * Updates the host-owned customization refs available to this agent.
+	 *
+	 * The list is a full replacement of the remote agent host's configured
+	 * plugins after scope resolution and persistence have been applied.
+	 *
+	 * Implementations can invoke `progress` whenever session-visible status
+	 * for the host customizations changes so callers can republish
+	 * `SessionCustomization` state.
+	 */
+	setHostCustomizations?(customizations: CustomizationRef[], progress?: () => void): void;
+
+	/**
+	 * Returns the host-owned customization refs this agent currently exposes.
+	 *
+	 * Used to publish baseline customization metadata on {@link AgentInfo}.
+	 */
+	getCustomizations?(): readonly CustomizationRef[];
+
+	/**
+	 * Returns the effective customization list for a session, including
+	 * source, enablement, and loading/error status.
+	 */
+	getSessionCustomizations?(session: URI): Promise<readonly SessionCustomization[]>;
+
+	/**
 	 * Authenticate for a specific resource. Returns true if accepted.
 	 * The `resource` matches {@link IAuthorizationProtectedResourceMetadata.resource}.
 	 */
@@ -599,7 +625,7 @@ export interface IAgentService {
 	 * it to state, triggers side effects, and echoes it back via
 	 * {@link onDidAction} with the client's origin for reconciliation.
 	 */
-	dispatchAction(action: SessionAction | TerminalAction, clientId: string, clientSeq: number): void;
+	dispatchAction(action: StateAction, clientId: string, clientSeq: number): void;
 
 	/**
 	 * List the contents of a directory on the agent host's filesystem.
@@ -652,7 +678,7 @@ export interface IAgentConnection {
 	getSubscriptionUnmanaged<T extends StateComponents>(kind: T, resource: URI): IAgentSubscription<ComponentToState[T]> | undefined;
 
 	// ---- Action dispatch ----------------------------------------------------
-	dispatch(action: SessionAction | TerminalAction): void;
+	dispatch(action: StateAction): void;
 
 	// ---- Events (connection-level) ------------------------------------------
 	readonly onDidNotification: Event<INotification>;

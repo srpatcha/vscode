@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import { raceTimeout } from '../../../base/common/async.js';
+import { joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { localize } from '../../../nls.js';
@@ -161,9 +162,10 @@ async function main(): Promise<void> {
 
 	// Session data service
 	const sessionDataService = new SessionDataService(URI.file(environmentService.userDataPath), fileService, logService);
+	const rootConfigResource = joinPath(environmentService.appSettingsHome, 'globalStorage', 'agent-host-config.json');
 
 	// Create the agent service (owns AgentHostStateManager + AgentSideEffects internally)
-	const agentService = new AgentService(logService, fileService, sessionDataService, productService);
+	const agentService = new AgentService(logService, fileService, sessionDataService, productService, rootConfigResource);
 	disposables.add(agentService);
 
 	// Register agents

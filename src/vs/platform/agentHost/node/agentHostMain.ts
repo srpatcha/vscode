@@ -9,6 +9,7 @@ import { Server as UtilityProcessServer } from '../../../base/parts/ipc/node/ipc
 import { isUtilityProcess } from '../../../base/parts/sandbox/node/electronTypes.js';
 import { Emitter } from '../../../base/common/event.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
+import { joinPath } from '../../../base/common/resources.js';
 import { isWindows } from '../../../base/common/platform.js';
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
@@ -84,11 +85,12 @@ function startAgentHost(): void {
 
 	// Session data service
 	const sessionDataService = new SessionDataService(URI.file(environmentService.userDataPath), fileService, logService);
+	const rootConfigResource = joinPath(environmentService.appSettingsHome, 'globalStorage', 'agent-host-config.json');
 
 	// Create the real service implementation that lives in this process
 	let agentService: AgentService;
 	try {
-		agentService = new AgentService(logService, fileService, sessionDataService, productService);
+		agentService = new AgentService(logService, fileService, sessionDataService, productService, rootConfigResource);
 		const pluginManager = new AgentPluginManager(URI.file(environmentService.userDataPath), fileService, logService);
 		const diServices = new ServiceCollection();
 		diServices.set(INativeEnvironmentService, environmentService);
