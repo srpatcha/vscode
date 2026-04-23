@@ -52,6 +52,7 @@ export const enum ActionType {
 	SessionTruncated = 'session/truncated',
 	SessionIsReadChanged = 'session/isReadChanged',
 	SessionIsArchivedChanged = 'session/isArchivedChanged',
+	SessionActivityChanged = 'session/activityChanged',
 	SessionDiffsChanged = 'session/diffsChanged',
 	SessionConfigChanged = 'session/configChanged',
 	RootTerminalsChanged = 'root/terminalsChanged',
@@ -599,6 +600,23 @@ export interface SessionIsArchivedChangedAction {
 }
 
 /**
+ * The activity description of the session changed.
+ *
+ * Dispatched by the server to indicate what the session is currently doing
+ * (e.g. running a tool, thinking). Clear activity by setting it to `undefined`.
+ *
+ * @category Session Actions
+ * @version 1
+ */
+export interface SessionActivityChangedAction {
+	type: ActionType.SessionActivityChanged;
+	/** Session URI */
+	session: URI;
+	/** Human-readable description of current activity, or `undefined` to clear */
+	activity: string | undefined;
+}
+
+/**
  * The file diffs for the session changed.
  *
  * Full-replacement semantics: the `diffs` array replaces the previous
@@ -1143,6 +1161,7 @@ export type StateAction =
 	| SessionTruncatedAction
 	| SessionIsReadChangedAction
 	| SessionIsArchivedChangedAction
+	| SessionActivityChangedAction
 	| SessionDiffsChangedAction
 	| SessionConfigChangedAction
 	| TerminalDataAction
