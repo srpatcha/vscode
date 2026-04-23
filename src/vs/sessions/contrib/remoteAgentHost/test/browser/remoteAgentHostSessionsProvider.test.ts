@@ -177,7 +177,7 @@ function createSession(id: string, opts?: { provider?: string; summary?: string;
 	};
 }
 
-function createProvider(disposables: DisposableStore, connection: MockAgentConnection, overrides?: { address?: string; connectionName?: string | undefined; sendRequest?: (resource: URI, message: string, options?: IChatSendRequestOptions) => Promise<ChatSendResult>; openSession?: boolean; storageService?: IStorageService; noConnection?: boolean }): RemoteAgentHostSessionsProvider {
+function createProvider(disposables: DisposableStore, connection: MockAgentConnection, overrides?: { address?: string; connectionName?: string | undefined; sendRequest?: (resource: URI, message: string, options?: IChatSendRequestOptions) => Promise<ChatSendResult>; openSession?: boolean; storageService?: IStorageService; noConnection?: boolean; isWebPlatform?: boolean }): RemoteAgentHostSessionsProvider {
 	const instantiationService = disposables.add(new TestInstantiationService());
 
 	instantiationService.stub(IFileDialogService, {});
@@ -206,7 +206,12 @@ function createProvider(disposables: DisposableStore, connection: MockAgentConne
 		name: overrides !== undefined && Object.prototype.hasOwnProperty.call(overrides, 'connectionName') ? overrides.connectionName ?? '' : 'Test Host',
 	};
 
-	const provider = disposables.add(instantiationService.createInstance(RemoteAgentHostSessionsProvider, config));
+	const providerCtor = overrides?.isWebPlatform === false
+		? class extends RemoteAgentHostSessionsProvider {
+			protected override get isWebPlatform(): boolean { return false; }
+		}
+		: RemoteAgentHostSessionsProvider;
+	const provider = disposables.add(instantiationService.createInstance(providerCtor, config));
 	if (!overrides?.noConnection) {
 		provider.setConnection(connection);
 	}
@@ -317,7 +322,7 @@ suite('RemoteAgentHostSessionsProvider', () => {
 		const ws = provider.resolveWorkspace(uri);
 
 		assert.ok(ws, 'resolveWorkspace should resolve vscode-agent-host:// URIs');
-		assert.strictEqual(ws.label, 'project [Test Host]');
+		assert.strictEqual(ws.label, 'project');
 		assert.strictEqual(ws.repositories.length, 1);
 		assert.strictEqual(ws.repositories[0].uri.toString(), uri.toString());
 		assert.strictEqual(ws.repositories[0].detail, undefined);
@@ -411,7 +416,7 @@ suite('RemoteAgentHostSessionsProvider', () => {
 			workingDirectory: workspace?.repositories[0]?.workingDirectory?.toString(),
 			detail: workspace?.repositories[0]?.detail,
 		}, {
-			label: 'vscode [Test Host]',
+			label: 'vscode',
 			repository: projectUri.toString(),
 			workingDirectory: workingDirectory.toString(),
 			detail: undefined,
@@ -527,7 +532,7 @@ suite('RemoteAgentHostSessionsProvider', () => {
 		assert.strictEqual(session.providerId, provider.id);
 		assert.strictEqual(session.status.get(), SessionStatus.Untitled);
 		assert.ok(session.workspace.get());
-		assert.strictEqual(session.workspace.get()?.label, 'project [Test Host]');
+		assert.strictEqual(session.workspace.get()?.label, 'project');
 		// sessionType should be the logical type, not the resource scheme
 		assert.strictEqual(session.sessionType, provider.sessionTypes[0].id);
 		assert.deepStrictEqual(provider.getSessionConfig(session.sessionId), { schema: { type: 'object', properties: {} }, values: {} });
@@ -547,7 +552,7 @@ suite('RemoteAgentHostSessionsProvider', () => {
 		}, {
 			listedSessions: 0,
 			resolvedResource: session.resource.toString(),
-			resolvedWorkspaceLabel: 'project [Test Host]',
+			resolvedWorkspaceLabel: 'project',
 		});
 	});
 
@@ -865,7 +870,7 @@ suite('RemoteAgentHostSessionsProvider', () => {
 
 		const workspace = wsSession!.workspace.get();
 		assert.ok(workspace, 'Workspace should be populated');
-		assert.strictEqual(workspace!.label, 'myrepo [Test Host]');
+		assert.strictEqual(workspace!.label, 'myrepo');
 		assert.strictEqual(workspace!.repositories[0].detail, undefined);
 	}));
 
@@ -1006,6 +1011,79 @@ suite('RemoteAgentHostSessionsProvider', () => {
 		provider.setConnection(newConnection);
 
 		assert.strictEqual(connection.sessionUnsubscribeCounts.get(sessionUriStr), 1);
+	}));
+
+	// ---- Non-web label formatting (native desktop) -------
+	//
+	// In the browser test runner `isWeb` is always `true`, so by default
+	// every test above exercises the web branch (which drops the
+	// `[<hostname>]` suffix because the titlebar host filter renders it
+	// redundantly). These tests pin the non-web (desktop) behaviour where
+	// the host suffix / host description must still appear.
+
+	test('non-web: resolveWorkspace includes [host] suffix in label', () => {
+		const provider = createProvider(disposables, connection, { isWebPlatform: false });
+		const uri = URI.parse('vscode-agent-host://auth/home/user/project');
+		const ws = provider.resolveWorkspace(uri);
+
+		assert.strictEqual(ws.label, 'project [Test Host]');
+	});
+
+	test('non-web: session workspace from project metadata includes [host] suffix', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+		const projectUri = URI.parse('vscode-agent-host://localhost__4321/file/-/home/user/vscode');
+		connection.addSession(createSession('project-1', {
+			summary: 'Project Session',
+			project: { uri: projectUri, displayName: 'vscode' },
+		}));
+
+		const provider = createProvider(disposables, connection, { isWebPlatform: false });
+		provider.getSessions();
+		await timeout(0);
+
+		assert.strictEqual(provider.getSessions()[0].workspace.get()?.label, 'vscode [Test Host]');
+	}));
+
+	test('non-web: session workspace from working directory includes [host] suffix', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+		connection.addSession(createSession('ws-sess', {
+			summary: 'WS Test',
+			workingDirectory: URI.parse('vscode-agent-host://localhost__4321/file/-/home/user/myrepo'),
+		}));
+
+		const provider = createProvider(disposables, connection, { isWebPlatform: false });
+		provider.getSessions();
+		await timeout(0);
+
+		const wsSession = provider.getSessions().find(s => s.title.get() === 'WS Test');
+		assert.strictEqual(wsSession?.workspace.get()?.label, 'myrepo [Test Host]');
+	}));
+
+	test('non-web: createNewSession workspace label includes [host] suffix', () => {
+		const provider = createProvider(disposables, connection, { isWebPlatform: false });
+		const session = provider.createNewSession(URI.parse('vscode-agent-host://auth/home/user/project'), provider.sessionTypes[0].id);
+
+		assert.strictEqual(session.workspace.get()?.label, 'project [Test Host]');
+	});
+
+	test('non-web: session description is the host label', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+		connection.addSession(createSession('desc-sess', { summary: 'Desc Test' }));
+
+		const provider = createProvider(disposables, connection, { isWebPlatform: false });
+		provider.getSessions();
+		await timeout(0);
+
+		const session = provider.getSessions().find(s => s.title.get() === 'Desc Test');
+		assert.strictEqual(session?.description.get()?.value, 'Test Host');
+	}));
+
+	test('web: session description is undefined (host filter dropdown replaces it)', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+		connection.addSession(createSession('desc-sess-web', { summary: 'Desc Web' }));
+
+		const provider = createProvider(disposables, connection);
+		provider.getSessions();
+		await timeout(0);
+
+		const session = provider.getSessions().find(s => s.title.get() === 'Desc Web');
+		assert.strictEqual(session?.description.get(), undefined);
 	}));
 
 });
