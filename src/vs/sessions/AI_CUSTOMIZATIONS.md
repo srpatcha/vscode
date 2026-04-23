@@ -94,6 +94,13 @@ Available harnesses:
 In core VS Code, all three harnesses are registered but CLI and Claude only appear when their respective agents are registered (`requiredAgentId` checked via `IChatAgentService`). VS Code is the default.
 In sessions, only CLI is registered (single harness, toggle bar hidden).
 
+Remote agent hosts can also register **external harnesses** dynamically. Each remote agent harness may contribute:
+- an `itemProvider` that surfaces plugins already configured on the remote host (or synced into the active remote session),
+- a `syncProvider` that continues to expose local files/plugins for client-to-remote sync, and
+- `pluginActions` that replace the default local install/create buttons in the Plugins section toolbar with environment-specific commands such as "Add Remote Plugin".
+
+The Plugins section renders remote harness `itemProvider` entries with `type: 'plugin'` directly. This is separate from the prompt-file pipeline used for Agents, Skills, Instructions, Prompts, and Hooks.
+
 ### IHarnessDescriptor
 
 Key properties on the harness descriptor:

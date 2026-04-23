@@ -55,6 +55,15 @@ export interface ISectionOverride {
 	readonly fileExtension?: string;
 }
 
+export interface ICustomizationItemAction {
+	readonly id: string;
+	readonly label: string;
+	readonly tooltip?: string;
+	readonly icon?: ThemeIcon;
+	readonly enabled?: boolean;
+	run(): void | Promise<void>;
+}
+
 /**
  * Describes a single harness option for the UI toggle.
  */
@@ -132,12 +141,21 @@ export interface IHarnessDescriptor {
 	 * this harness is active.
 	 */
 	readonly syncProvider?: ICustomizationSyncProvider;
+	/**
+	 * Optional plugin-management actions shown in the Plugins section toolbar.
+	 * Harnesses can use these to replace the default local install/create
+	 * actions with environment-specific commands (for example, configuring
+	 * plugins on a remote agent host).
+	 */
+	readonly pluginActions?: readonly ICustomizationItemAction[];
 }
 
 /**
  * Represents a customization item provided by any source.
  */
 export interface ICustomizationItem {
+	/** Optional stable identity used by list widgets when URI alone is not unique. */
+	readonly itemKey?: string;
 	readonly uri: URI;
 	readonly type: string;
 	readonly name: string;
@@ -158,6 +176,8 @@ export interface ICustomizationItem {
 	readonly badge?: string;
 	/** Tooltip shown when hovering the badge. */
 	readonly badgeTooltip?: string;
+	/** Optional inline/context-menu actions specific to this item. */
+	readonly actions?: readonly ICustomizationItemAction[];
 }
 
 /**
