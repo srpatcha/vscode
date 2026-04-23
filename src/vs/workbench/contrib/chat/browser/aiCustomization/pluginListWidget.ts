@@ -170,21 +170,21 @@ class PluginInstalledItemRenderer implements IListRenderer<IPluginInstalledItemE
 			}
 		}));
 
-		// Sync checkbox: shown when the active harness has a sync provider
-		const syncProvider = this._harnessService.getActiveDescriptor().syncProvider;
-		if (syncProvider) {
+		// Disable checkbox: shown when the active harness has a disable provider
+		const disableProvider = this._harnessService.getActiveDescriptor().disableProvider;
+		if (disableProvider) {
 			templateData.syncCheckboxContainer.style.display = '';
 			const pluginUri = element.item.plugin.uri;
-			const synced = syncProvider.isSelected(pluginUri);
-			const title = synced
-				? localize('unsyncPlugin', "Remove {0} from sync", element.item.name)
-				: localize('syncPlugin', "Add {0} to sync", element.item.name);
+			const disabled = disableProvider.isDisabled(pluginUri);
+			const title = disabled
+				? localize('enablePlugin', "Enable {0} for sync", element.item.name)
+				: localize('disablePlugin', "Disable {0} from sync", element.item.name);
 			const checkbox = templateData.disposables.add(
-				new Checkbox(title, synced, defaultCheckboxStyles)
+				new Checkbox(title, !disabled, defaultCheckboxStyles)
 			);
 			templateData.syncCheckboxContainer.replaceChildren(checkbox.domNode);
 			templateData.disposables.add(checkbox.onChange(() => {
-				syncProvider.toggleUri(pluginUri);
+				disableProvider.setDisabled(pluginUri, !checkbox.checked);
 			}));
 		} else {
 			templateData.syncCheckboxContainer.style.display = 'none';
@@ -649,22 +649,6 @@ export class PluginListWidget extends Disposable {
 			this.updateToolbarActions();
 			if (!this.browseMode) {
 				void this.refresh();
-			}
-		}));
-
-		// Re-render when the active harness's sync provider selection changes
-		const syncChangeDisposable = this._register(new MutableDisposable());
-		this._register(autorun(reader => {
-			this.harnessService.activeHarness.read(reader);
-			const syncProvider = this.harnessService.getActiveDescriptor().syncProvider;
-			if (syncProvider) {
-				syncChangeDisposable.value = syncProvider.onDidChange(() => {
-					if (!this.browseMode) {
-						this.refresh();
-					}
-				});
-			} else {
-				syncChangeDisposable.clear();
 			}
 		}));
 

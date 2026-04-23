@@ -29,9 +29,9 @@ import { type IHarnessDescriptor, type ICustomizationItem, type ICustomizationIt
 import { PromptsType } from '../../../../workbench/contrib/chat/common/promptSyntax/promptTypes.js';
 import { PromptsStorage } from '../../../../workbench/contrib/chat/common/promptSyntax/service/promptsService.js';
 import { BUILTIN_STORAGE } from '../../chat/common/builtinPromptsStorage.js';
-import { AgentCustomizationSyncProvider } from '../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentCustomizationSyncProvider.js';
+import { AgentCustomizationDisableProvider } from '../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentCustomizationDisableProvider.js';
 
-export { AgentCustomizationSyncProvider as RemoteAgentSyncProvider } from '../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentCustomizationSyncProvider.js';
+export { AgentCustomizationDisableProvider as RemoteAgentDisableProvider } from '../../../../workbench/contrib/chat/browser/agentSessions/agentHost/agentCustomizationDisableProvider.js';
 
 const REMOTE_HOST_GROUP = 'remote-host';
 const REMOTE_CLIENT_GROUP = 'remote-client';
@@ -497,7 +497,7 @@ export function createRemoteAgentHarnessDescriptor(
 	displayName: string,
 	controller: RemoteAgentPluginController,
 	itemProvider: RemoteAgentCustomizationItemProvider,
-	syncProvider: AgentCustomizationSyncProvider,
+	disableProvider: AgentCustomizationDisableProvider,
 ): IHarnessDescriptor {
 	const allSources = [PromptsStorage.local, PromptsStorage.user, PromptsStorage.plugin, BUILTIN_STORAGE];
 	const filter: IStorageSourceFilter = { sources: allSources };
@@ -515,7 +515,7 @@ export function createRemoteAgentHarnessDescriptor(
 			return filter;
 		},
 		itemProvider,
-		syncProvider,
+		disableProvider,
 		pluginActions: controller.pluginActions,
 	};
 }

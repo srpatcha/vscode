@@ -73,7 +73,7 @@ export async function generateCustomizationDebugReport(
 		lines.push(`  id: ${activeDescriptor.id}`);
 		lines.push(`  label: ${activeDescriptor.label}`);
 		lines.push(`  hasItemProvider: ${!!activeDescriptor.itemProvider}`);
-		lines.push(`  hasSyncProvider: ${!!activeDescriptor.syncProvider}`);
+		lines.push(`  hasDisableProvider: ${!!activeDescriptor.disableProvider}`);
 		lines.push(`  hiddenSections: ${activeDescriptor.hiddenSections ? `[${activeDescriptor.hiddenSections.join(', ')}]` : '(none)'}`);
 		lines.push(`  workspaceSubpaths: ${activeDescriptor.workspaceSubpaths ? `[${activeDescriptor.workspaceSubpaths.join(', ')}]` : '(none)'}`);
 		lines.push(`  hideGenerateButton: ${activeDescriptor.hideGenerateButton ?? false}`);
@@ -93,8 +93,7 @@ export async function generateCustomizationDebugReport(
 
 	// Determine which provider the widget actually uses (mirrors getItemSource logic)
 	const extensionProvider = activeDescriptor?.itemProvider;
-	const hasSyncProvider = !!activeDescriptor?.syncProvider;
-	const effectiveProvider = extensionProvider ?? (hasSyncProvider ? undefined : promptsServiceItemProvider);
+	const effectiveProvider = extensionProvider ?? promptsServiceItemProvider;
 
 	// Stage 1: Provider output
 	if (effectiveProvider) {
@@ -105,9 +104,6 @@ export async function generateCustomizationDebugReport(
 			providerLabel = 'PromptsService Adapter (fallback — no extension provider registered)';
 		}
 		await appendProviderData(lines, effectiveProvider, promptType, providerLabel);
-	} else if (hasSyncProvider) {
-		lines.push('--- Stage 1: No item provider (sync-only harness) ---');
-		lines.push('');
 	} else {
 		lines.push('--- Stage 1: No provider available ---');
 		lines.push('');

@@ -21,7 +21,7 @@ import { IProductService } from '../../../../../platform/product/common/productS
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { IPathService } from '../../../../services/path/common/pathService.js';
 import { IAICustomizationWorkspaceService } from '../../common/aiCustomizationWorkspaceService.js';
-import { ICustomizationSyncProvider, ICustomizationItem, ICustomizationItemProvider } from '../../common/customizationHarnessService.js';
+import { ICustomizationItem, ICustomizationItemProvider } from '../../common/customizationHarnessService.js';
 import { IAgentPluginService } from '../../common/plugins/agentPluginService.js';
 import { parseHooksFromFile } from '../../common/promptSyntax/hookCompatibility.js';
 import { formatHookCommandLabel } from '../../common/promptSyntax/hookSchema.js';
@@ -67,10 +67,6 @@ export interface IAICustomizationListItem {
 	readonly status?: 'loading' | 'loaded' | 'degraded' | 'error';
 	/** Human-readable status detail (e.g. error message or warning). */
 	readonly statusMessage?: string;
-	/** When true, this item can be selected for syncing to a remote harness. */
-	readonly syncable?: boolean;
-	/** When true, this syncable item is currently selected for syncing. */
-	readonly synced?: boolean;
 	nameMatches?: IMatch[];
 	descriptionMatches?: IMatch[];
 }
@@ -304,48 +300,25 @@ export class AICustomizationItemNormalizer {
 
 /**
  * Unified item source that fetches items from a provider (extension-contributed
- * or the promptsService adapter), normalizes them into list items, and optionally
- * blends in local syncable items when a sync provider is present.
+ * or the promptsService adapter) and normalizes them into list items.
  */
 export class ProviderCustomizationItemSource implements IAICustomizationItemSource {
 
 	readonly onDidChange: Event<void>;
 
 	constructor(
-		private readonly itemProvider: ICustomizationItemProvider | undefined,
-		private readonly syncProvider: ICustomizationSyncProvider | undefined,
+		private readonly itemProvider: ICustomizationItemProvider,
 		private readonly promptsService: IPromptsService,
 		private readonly workspaceService: IAICustomizationWorkspaceService,
 		private readonly fileService: IFileService,
 		private readonly pathService: IPathService,
 		private readonly itemNormalizer: AICustomizationItemNormalizer,
 	) {
-		const onDidChangeSyncableCustomizations = this.syncProvider
-			? Event.any(
-				this.promptsService.onDidChangeCustomAgents,
-				this.promptsService.onDidChangeSlashCommands,
-				this.promptsService.onDidChangeSkills,
-				this.promptsService.onDidChangeHooks,
-				this.promptsService.onDidChangeInstructions,
-			)
-			: Event.None;
-
-		this.onDidChange = Event.any(
-			this.itemProvider?.onDidChange ?? Event.None,
-			this.syncProvider?.onDidChange ?? Event.None,
-			onDidChangeSyncableCustomizations,
-		);
+		this.onDidChange = this.itemProvider.onDidChange;
 	}
 
 	async fetchItems(promptType: PromptsType): Promise<IAICustomizationListItem[]> {
-		const remoteItems = this.itemProvider
-			? await this.fetchItemsFromProvider(this.itemProvider, promptType)
-			: [];
-		if (!this.syncProvider) {
-			return remoteItems;
-		}
-		const localItems = await this.fetchLocalSyncableItems(promptType, this.syncProvider);
-		return [...remoteItems, ...localItems];
+		return this.fetchItemsFromProvider(this.itemProvider, promptType);
 	}
 
 	private async fetchItemsFromProvider(provider: ICustomizationItemProvider, promptType: PromptsType): Promise<IAICustomizationListItem[]> {
@@ -470,30 +443,6 @@ export class ProviderCustomizationItemSource implements IAICustomizationItemSour
 			: { ...item, description: descriptionsByUri.get(item.uri.toString()) });
 	}
 
-	private async fetchLocalSyncableItems(promptType: PromptsType, syncProvider: ICustomizationSyncProvider): Promise<IAICustomizationListItem[]> {
-		const files = await this.promptsService.listPromptFiles(promptType, CancellationToken.None);
-		if (!files.length) {
-			return [];
-		}
-
-		const providerItems: ICustomizationItem[] = files
-			.filter(file => file.storage === PromptsStorage.local || file.storage === PromptsStorage.user)
-			.map(file => ({
-				uri: file.uri,
-				type: promptType,
-				name: getFriendlyName(basename(file.uri)),
-				groupKey: 'sync-local',
-				enabled: true,
-			}));
-
-		return this.itemNormalizer.normalizeItems(providerItems, promptType)
-			.map(item => ({
-				...item,
-				id: `sync-${item.id}`,
-				syncable: true,
-				synced: syncProvider.isSelected(item.uri),
-			}));
-	}
 }
 
 // #endregion
